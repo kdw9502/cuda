@@ -17,7 +17,7 @@
 //2 prac 1-3
 //3 Fibonacci
 //4 gen
-#define prac 2
+#define prac 3
 
 
 #define CUDA_CALL(x) { const cudaError_t a = (x); if(a != cudaSuccess) { printf("\nCuda Error: %s (err_num=%d) at line:%d\n", cudaGetErrorString(a), a, __LINE__); cudaDeviceReset(); assert(0);}}
@@ -367,44 +367,29 @@ void Fibonacci_GPU(int *x, int *y)
 {
 	int *X, *Y;
 	int size;
+	int rootsize;
 	cudaError_t cudaStatus;
 		// Choose which GPU to run on, change this on a multi-GPU system.
 		cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 	}
-	size = sizeof(x) / sizeof(x[0]);
-	CUDA_CALL(cudaMalloc(&X, size))
-	CUDA_CALL(cudaMalloc(&Y, size))
-	CUDA_CALL(cudaMemcpy(X, x, size, cudaMemcpyHostToDevice))
+	//size = sizeof(x) / sizeof(x[0]);
+	size = N;
+	rootsize = sqrt((double)size);
+	CUDA_CALL(cudaMalloc(&X, size*sizeof(int)))
+	CUDA_CALL(cudaMalloc(&Y, size * sizeof(int)))
+	CUDA_CALL(cudaMemcpy(X, x, size * sizeof(int), cudaMemcpyHostToDevice))
 
-	CHECK_TIME_START_GPU()
-		//todo
-
-	CHECK_TIME_END_GPU(compute_time)
-	dim3 dimBlock(1, BLOCK_SIZE);
-	dim3 dimGrid(BLOCK_SIZE, size / BLOCK_SIZE);
-
-/*	float *M, *X, *Y;
-	// Choose which GPU to run on, change this on a multi-GPU system.		
-	CUDA_CALL(cudaSetDevice(0))
-		int size;
-	size = n*ELEM_PER_VECTOR * sizeof(float);
-	CUDA_CALL(cudaMalloc(&Y, size))
-		CUDA_CALL(cudaMalloc(&X, size))
-		CUDA_CALL(cudaMemcpy(X, pVecX, size, cudaMemcpyHostToDevice))
-		size = ELEM_PER_VECTOR*ELEM_PER_VECTOR * sizeof(float);
-	CUDA_CALL(cudaMalloc(&M, size));
-	CUDA_CALL(cudaMemcpy(M, pMatA, size, cudaMemcpyHostToDevice))
-
-		dim3 dimBlock(1, BLOCK_SIZE);
-	dim3 dimGrid(BLOCK_SIZE, n / BLOCK_SIZE);
+	dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
+	dim3 dimGrid(rootsize/ dimBlock.x, rootsize / dimBlock.y);
 	CHECK_TIME_START_GPU()
 
-		Mat_Vec_Multiply_Kernel << < dimGrid, dimBlock >> >(M, X, Y);
+	Fibonacci_Kernel << < dimGrid, dimBlock >> >(X, Y);
 	CHECK_TIME_END_GPU(device_time)
-		size = n * ELEM_PER_VECTOR * sizeof(float);
-	CUDA_CALL(cudaMemcpy(pVecY_G, Y, size, cudaMemcpyDeviceToHost));*/
+	CUDA_CALL(cudaMemcpy(y, Y, size * sizeof(int), cudaMemcpyDeviceToHost));
+
+
 }
 
 int *x, *y_c, *y_g; // input/output arrays
@@ -451,7 +436,7 @@ void main(void) {
 
 	fprintf(stdout, "\n***_CPU_ Time taken for computing %d Fibonacci numbers is %.6fms\n\n", n, compute_time);
 
-	//fprintf(stdout, "\n***_GPU_ Time taken for computing %d Fibonacci numbers is %.6fms\n\n", n, device_time);
+	fprintf(stdout, "\n***_GPU_ Time taken for computing %d Fibonacci numbers is %.6fms\n\n", n, device_time);
 
 	i = (int)(n * (rand() / (RAND_MAX + 1.0f)));
 	fprintf(stdout, "*** Fibonacci number of %d is (CPU :%d  , GPU :%d).\n\n", x[i], y_c[i], y_g[i]);
