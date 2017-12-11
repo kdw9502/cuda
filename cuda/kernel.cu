@@ -9,15 +9,15 @@
 #include <Windows.h>
 #include <time.h>
 #include <assert.h>
-//GT635
-//duad cores 384
-//mem 2G
+//GT1070
+//duad cores 2048
+//mem 8G
 
 //1 exercise
 //2 prac 1-3
 //3 Fibonacci
 //4 gen
-#define prac 2
+#define prac 3
 
 
 #define CUDA_CALL(x) { const cudaError_t a = (x); if(a != cudaSuccess) { printf("\nCuda Error: %s (err_num=%d) at line:%d\n", cudaGetErrorString(a), a, __LINE__); cudaDeviceReset(); assert(0);}}
@@ -89,7 +89,7 @@ typedef struct {
 } Array;
 
 
-#define MAX_N_ELEMENTS	(1 << 21)
+#define MAX_N_ELEMENTS	(1 << 24)
 
 void generate_random_float_array(float *array, int n) {
 
@@ -116,13 +116,13 @@ __global__ void CombineTwoArrraysKernel(Array A, Array B, Array C) {
 
 cudaError_t combine_two_arrays_GPU(const Array A, const Array B, Array C);
 
-int BLOCK_SIZE = 24;
-//8->23.59
-//12->15.16
-//16->13.31
-//20->16.00
-//24->15.00
-//32->13.67
+int BLOCK_SIZE = 32;
+//32 17.90 ms
+//28 16.01 ms
+//24 17.41
+//20 18.54
+//16 17.51
+//8 17.74
 
 int main()
 {
@@ -224,7 +224,7 @@ Error:
 #if prac==2
 
 int n;
-#define BLOCK_SIZE 32
+#define BLOCK_SIZE 16
 const int ELEM_PER_VECTOR = 32;
 float (*pVecX)[ELEM_PER_VECTOR], (*pVecY)[ELEM_PER_VECTOR], (*pVecY_G)[ELEM_PER_VECTOR];
 float(*pMatA)[ELEM_PER_VECTOR];
@@ -259,9 +259,9 @@ __global__ void Mat_Vec_Multiply_Kernel(float* M,float* X,float* Y)
 	int col = blockDim.x*blockIdx.x + threadIdx.x;
 	int id = gridDim.x*blockDim.x*row + col;
 	Y[id]=0;
-	for (int j = 0; j < BLOCK_SIZE; j++)
+	for (int j = 0; j < ELEM_PER_VECTOR; j++)
 	{
-		Y[id]+=M[col*BLOCK_SIZE+j]*X[row*BLOCK_SIZE+j];
+		Y[id]+=M[col*ELEM_PER_VECTOR +j]*X[row*ELEM_PER_VECTOR+j];
 	}
 	
 
@@ -275,11 +275,11 @@ void Mat_Vec_Multiply_GPU()
 	// Choose which GPU to run on, change this on a multi-GPU system.		
 	CUDA_CALL(cudaSetDevice(0))
 	int size;
-	size=n*BLOCK_SIZE*sizeof(float);
+	size=n*ELEM_PER_VECTOR *sizeof(float);
 	CUDA_CALL(cudaMalloc(&Y,size))
 	CUDA_CALL(cudaMalloc(&X,size))
 	CUDA_CALL(cudaMemcpy(X,pVecX,size,cudaMemcpyHostToDevice))
-	size=BLOCK_SIZE*BLOCK_SIZE*sizeof(float);
+	size= ELEM_PER_VECTOR*ELEM_PER_VECTOR *sizeof(float);
 	CUDA_CALL(cudaMalloc(&M,size));
 	CUDA_CALL(cudaMemcpy(M,pMatA,size,cudaMemcpyHostToDevice))
 
@@ -289,7 +289,7 @@ void Mat_Vec_Multiply_GPU()
 
 	Mat_Vec_Multiply_Kernel <<< dimGrid, dimBlock >>>(M,X,Y);
 	CHECK_TIME_END_GPU(device_time)
-	size = n * BLOCK_SIZE * sizeof(float);
+	size = n * ELEM_PER_VECTOR * sizeof(float);
 	CUDA_CALL(cudaMemcpy(pVecY_G,Y,size,cudaMemcpyDeviceToHost));
 }
 
@@ -371,6 +371,9 @@ void Fibonacci_GPU(int *x, int *y)
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 	}
+	CHECK_TIME_START_GPU()
+		//todo
+	CHECK_TIME_END_GPU(compute_time)
 
 }
 
@@ -408,7 +411,12 @@ void main(void) {
 	}
 	CHECK_TIME_END(compute_time);
 	//GPU
+
+	CHECK_TIME_INIT_GPU() 
+
 	Fibonacci_GPU(x, y_g);
+
+	CHECK_TIME_DEST_GPU() 
 
 
 	fprintf(stdout, "\n***_CPU_ Time taken for computing %d Fibonacci numbers is %.6fms\n\n", n, compute_time);
