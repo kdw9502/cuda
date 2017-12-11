@@ -17,7 +17,7 @@
 //2 prac 1-3
 //3 Fibonacci
 //4 gen
-#define prac 3
+#define prac 2
 
 
 #define CUDA_CALL(x) { const cudaError_t a = (x); if(a != cudaSuccess) { printf("\nCuda Error: %s (err_num=%d) at line:%d\n", cudaGetErrorString(a), a, __LINE__); cudaDeviceReset(); assert(0);}}
@@ -224,7 +224,7 @@ Error:
 #if prac==2
 
 int n;
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 64
 const int ELEM_PER_VECTOR = 32;
 float (*pVecX)[ELEM_PER_VECTOR], (*pVecY)[ELEM_PER_VECTOR], (*pVecY_G)[ELEM_PER_VECTOR];
 float(*pMatA)[ELEM_PER_VECTOR];
@@ -284,7 +284,7 @@ void Mat_Vec_Multiply_GPU()
 	CUDA_CALL(cudaMemcpy(M,pMatA,size,cudaMemcpyHostToDevice))
 
 	dim3 dimBlock(1, BLOCK_SIZE);
-	dim3 dimGrid(BLOCK_SIZE,n/BLOCK_SIZE);
+	dim3 dimGrid(ELEM_PER_VECTOR,n/BLOCK_SIZE);
 	CHECK_TIME_START_GPU()
 
 	Mat_Vec_Multiply_Kernel <<< dimGrid, dimBlock >>>(M,X,Y);
@@ -317,7 +317,7 @@ int main()
 #endif
 
 #if prac==3
-
+#define BLOCK_SIZE 32
 #define N 67108864 // 8192 * 8192 = 2^13 * 2^13
 int Fibonacci(int n) {
 	// DO NOT MODIFY THIS FUNCTION!!!
@@ -365,16 +365,46 @@ __global__ void Fibonacci_Kernel(int *x, int *y)
 }
 void Fibonacci_GPU(int *x, int *y)
 {
+	int *X, *Y;
+	int size;
 	cudaError_t cudaStatus;
 		// Choose which GPU to run on, change this on a multi-GPU system.
 		cudaStatus = cudaSetDevice(0);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 	}
+	size = sizeof(x) / sizeof(x[0]);
+	CUDA_CALL(cudaMalloc(&X, size))
+	CUDA_CALL(cudaMalloc(&Y, size))
+	CUDA_CALL(cudaMemcpy(X, x, size, cudaMemcpyHostToDevice))
+
 	CHECK_TIME_START_GPU()
 		//todo
-	CHECK_TIME_END_GPU(compute_time)
 
+	CHECK_TIME_END_GPU(compute_time)
+	dim3 dimBlock(1, BLOCK_SIZE);
+	dim3 dimGrid(BLOCK_SIZE, size / BLOCK_SIZE);
+
+/*	float *M, *X, *Y;
+	// Choose which GPU to run on, change this on a multi-GPU system.		
+	CUDA_CALL(cudaSetDevice(0))
+		int size;
+	size = n*ELEM_PER_VECTOR * sizeof(float);
+	CUDA_CALL(cudaMalloc(&Y, size))
+		CUDA_CALL(cudaMalloc(&X, size))
+		CUDA_CALL(cudaMemcpy(X, pVecX, size, cudaMemcpyHostToDevice))
+		size = ELEM_PER_VECTOR*ELEM_PER_VECTOR * sizeof(float);
+	CUDA_CALL(cudaMalloc(&M, size));
+	CUDA_CALL(cudaMemcpy(M, pMatA, size, cudaMemcpyHostToDevice))
+
+		dim3 dimBlock(1, BLOCK_SIZE);
+	dim3 dimGrid(BLOCK_SIZE, n / BLOCK_SIZE);
+	CHECK_TIME_START_GPU()
+
+		Mat_Vec_Multiply_Kernel << < dimGrid, dimBlock >> >(M, X, Y);
+	CHECK_TIME_END_GPU(device_time)
+		size = n * ELEM_PER_VECTOR * sizeof(float);
+	CUDA_CALL(cudaMemcpy(pVecY_G, Y, size, cudaMemcpyDeviceToHost));*/
 }
 
 int *x, *y_c, *y_g; // input/output arrays
