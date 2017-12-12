@@ -17,7 +17,8 @@
 //2 prac 1-3
 //3 Fibonacci
 //4 gen
-#define prac 3
+//5 homework 1
+#define prac 5
 
 
 #define CUDA_CALL(x) { const cudaError_t a = (x); if(a != cudaSuccess) { printf("\nCuda Error: %s (err_num=%d) at line:%d\n", cudaGetErrorString(a), a, __LINE__); cudaDeviceReset(); assert(0);}}
@@ -317,7 +318,7 @@ int main()
 #endif
 
 #if prac==3
-#define BLOCK_SIZE 32
+#define BLOCK_SIZE 4
 #define N 67108864 // 8192 * 8192 = 2^13 * 2^13
 int Fibonacci(int n) {
 	// DO NOT MODIFY THIS FUNCTION!!!
@@ -383,10 +384,11 @@ void Fibonacci_GPU(int *x, int *y)
 
 	dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
 	dim3 dimGrid(rootsize/ dimBlock.x, rootsize / dimBlock.y);
-	CHECK_TIME_START_GPU()
 
+	CHECK_TIME_START_GPU()
 	Fibonacci_Kernel << < dimGrid, dimBlock >> >(X, Y);
 	CHECK_TIME_END_GPU(device_time)
+
 	CUDA_CALL(cudaMemcpy(y, Y, size * sizeof(int), cudaMemcpyDeviceToHost));
 
 
@@ -528,6 +530,182 @@ int main()
 	delete[] vec;
 
 	return 0;
+}
+
+#endif
+
+#if prac==5
+#define N 0x100000 
+#define BLOCK_SIZE 4
+
+void find_roots_CPU(float *A, float *B, float *C, float *X0, float *X1, float *FX0, float *FX1, int n)
+{
+	int i;
+	float a, b, c, d, x0, x1, tmp;
+
+	for (i = 0; i < n; i++) {
+		a = A[i]; b = B[i]; c = C[i];
+		d = sqrtf(b*b - 4.0f*a*c);
+		tmp = 1.0f / (2.0f*a);
+		x0 = (-b - d) * tmp;
+		x1 = (-b + d) * tmp;
+		X0[i] = min(x0, x1);
+		X1[i] = max(x0, x1);
+		FX0[i] = (a*x0 + b)*x0 + c;
+		FX1[i] = (a*x1 + b)*x1 + c;
+	}
+}
+
+__global__ void find_roots_Kernel(float *A, float *B, float *C, float *X0, float *X1, float *FX0, float *FX1, int n)
+{
+	int col = threadIdx.x + blockDim.x * blockIdx.x;
+	int row = threadIdx.y + blockDim.y * blockIdx.y;
+	int i = gridDim.x*blockDim.x*row + col;
+	float a, b, c, d, x0, x1, tmp;
+	a = A[i]; b = B[i]; c = C[i];
+	d = sqrtf(b*b - 4.0f*a*c);
+	tmp = 1.0f / (2.0f*a);
+	x0 = (-b - d) * tmp;
+	x1 = (-b + d) * tmp;
+	X0[i] = min(x0, x1);
+	X1[i] = max(x0, x1);
+	FX0[i] = (a*x0 + b)*x0 + c;
+	FX1[i] = (a*x1 + b)*x1 + c;
+}
+void find_roots_GPU(float *A, float *B, float *C, float *X0, float *X1, float *FX0, float *FX1, int n) {
+	float *aa, *b,*c,*x0,*x1,*f0,*f1;
+	int size;
+	int rootsize;
+	cudaError_t cudaStatus;
+	// Choose which GPU to run on, change this on a multi-GPU system.
+	cudaStatus = cudaSetDevice(0);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+	}
+	size = n;
+	rootsize = sqrt((double)size);
+	CUDA_CALL(cudaMalloc(&aa, size * sizeof(float)))
+	CUDA_CALL(cudaMalloc(&b, size * sizeof(float)))
+	CUDA_CALL(cudaMalloc(&c, size * sizeof(float)))
+	CUDA_CALL(cudaMalloc(&x0, size * sizeof(float)))
+	CUDA_CALL(cudaMalloc(&x1, size * sizeof(float)))
+	CUDA_CALL(cudaMalloc(&f0, size * sizeof(float)))
+	CUDA_CALL(cudaMalloc(&f1, size * sizeof(float)))
+
+	CUDA_CALL(cudaMemcpy(aa, A, size * sizeof(float), cudaMemcpyHostToDevice))
+	CUDA_CALL(cudaMemcpy(b, B, size * sizeof(float), cudaMemcpyHostToDevice))
+	CUDA_CALL(cudaMemcpy(c, C, size * sizeof(float), cudaMemcpyHostToDevice))
+	dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
+	dim3 dimGrid(rootsize / dimBlock.x, rootsize / dimBlock.y);
+
+	CHECK_TIME_START_GPU()
+	find_roots_Kernel << < dimGrid, dimBlock >> >(aa,b,c,x0,x1,f0,f1,n);
+	CHECK_TIME_END_GPU(device_time)
+
+	CUDA_CALL(cudaMemcpy(X0, x0, size * sizeof(float), cudaMemcpyDeviceToHost));
+	CUDA_CALL(cudaMemcpy(X1, x1, size * sizeof(float), cudaMemcpyDeviceToHost));
+	CUDA_CALL(cudaMemcpy(FX0, f0, size * sizeof(float), cudaMemcpyDeviceToHost));
+	CUDA_CALL(cudaMemcpy(FX1, f1, size * sizeof(float), cudaMemcpyDeviceToHost));
+
+}
+
+
+float *a, *b, *c,  *x0, *x1,*f0,*f1, tmp; // input/output arrays
+
+void main(void) {
+
+	int n, i;
+	FILE *fp_a,*fp_b,*fp_c;
+
+	// Read the input array from the input file if one already exists.
+	fp_a = fopen("A.bin", "rb");
+	fp_b = fopen("B.bin", "rb");
+	fp_c = fopen("C.bin", "rb");
+	if (!fp_a||!fp_b||!fp_c) {
+		fprintf(stderr, "Error: cannot open the input file...\n");
+		exit(-1);
+	}
+	fread(&n, sizeof(int), 1, fp_a);
+	fread(&n, sizeof(int), 1, fp_b);
+	fread(&n, sizeof(int), 1, fp_c);
+	fprintf(stdout, "\n*** The problem size is %d.\n", n);
+
+	a = (float *)malloc(sizeof(float)*n);
+	b = (float *)malloc(sizeof(float)*n);
+	c = (float *)malloc(sizeof(float)*n);
+
+	x0 = (float *)malloc(sizeof(float)*n);
+	x1 = (float *)malloc(sizeof(float)*n);
+	f0 = (float *)malloc(sizeof(float)*n);
+	f1 = (float *)malloc(sizeof(float)*n);
+
+	if (!a || !b || !c || !x0 || !x1 || !f0 || !f1) {
+		fprintf(stderr, "Error: cannot allocate memory for the input array...\n");
+		exit(-1);
+	}
+	fread(a, sizeof(float), n, fp_a);
+	fread(b, sizeof(float), n, fp_b);
+	fread(c, sizeof(float), n, fp_c);
+	fclose(fp_a);
+	fclose(fp_b);
+	fclose(fp_c);
+
+
+
+	//CPU
+	CHECK_TIME_START;
+	find_roots_CPU(a,b,c,x0,x1,f0,f1,N);
+	
+	CHECK_TIME_END(compute_time);
+	//GPU
+
+	srand(time(NULL));
+	i = (int)(rand() %n);
+
+	fprintf(stdout, "for %d th equation\n", i);
+	fprintf(stdout, "\n***_CPU_ Time taken for computing %d roots is %.6fms\n\n", n, compute_time);
+
+	fprintf(stdout, "CPU: for %.3fx^2+%.3fx+%.3f x0=%.3f x1=%.3f fx0=%.3f fx1=%.3f  \n",a[i],b[i],c[i],x0[i],x1[i],f0[i],f1[i]);
+
+	CHECK_TIME_INIT_GPU()
+	find_roots_GPU(a, b, c, x0, x1, f0, f1, N);
+
+	CHECK_TIME_DEST_GPU()
+
+
+	fprintf(stdout, "\n***_GPU_ Time taken for computing %d roots is %.6fms\n\n", n, device_time);
+	fprintf(stdout, "GPU: for %.3fx^2+%.3fx+%.3f x0=%.3f x1=%.3f fx0=%.3f fx1=%.3f  \n", a[i], b[i], c[i], x0[i], x1[i], f0[i], f1[i]);
+	// Write the output array into the output file.
+	FILE *fp_X0 = fopen("X0.binary", "wb");
+	FILE *fp_X1 = fopen("X1.binary", "wb");
+	FILE *fp_FX0 = fopen("FX0.binary", "wb");
+	FILE *fp_FX1 = fopen("FX1.binary", "wb");
+	if (!fp_X0 || !fp_X1 || !fp_FX0 || !fp_FX1) {
+		fprintf(stderr, "Error: cannot open the output file...\n");
+		exit(-1);
+	}
+	fwrite(&n, sizeof(int), 1, fp_X0);
+	fwrite(&n, sizeof(int), 1, fp_X1);
+	fwrite(&n, sizeof(int), 1, fp_FX0);
+	fwrite(&n, sizeof(int), 1, fp_FX1);
+
+	fwrite(x0, sizeof(float), n, fp_X0);
+	fwrite(x1, sizeof(float), n, fp_X1);
+	fwrite(f0, sizeof(float), n, fp_FX0);
+	fwrite(f1, sizeof(float), n, fp_FX1);
+
+	fclose(fp_X0);
+	fclose(fp_X1);
+	fclose(fp_FX0);
+	fclose(fp_FX1);
+
+	free(a);
+	free(b);
+	free(c);
+	free(x0);
+	free(x1);
+	free(f1);
+	free(f0);
 }
 
 #endif
